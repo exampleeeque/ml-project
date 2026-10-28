@@ -1,0 +1,31 @@
+# --- Python / виртуальное окружение ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- Секреты: никогда не коммитить ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+*.kdbx
+
+# --- Данные и модели: не помещаются в Git автоматически ---
+# Каталоги сохраняются через .gitkeep, содержимое игнорируется.
+data/*
+!data/.gitkeep
+models/*
+!models/.gitkeep
+
+# --- Служебные файлы ОС и IDE ---
+.DS_Store
+.vscode/
+.idea/
