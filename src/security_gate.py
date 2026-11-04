@@ -2,7 +2,9 @@
 
 Политика: config/security_policy.toml.
   * pip-audit (JSON): любая уязвимость или непроверенный пакет -> отказ;
-  * Trivy image (JSON): уязвимость уровня CRITICAL или UNKNOWN -> отказ.
+  * Trivy image (JSON): уязвимость уровня CRITICAL или UNKNOWN -> отказ;
+    для UNKNOWN допускаются точечные исключения (идентификатор + пакет +
+    обоснование + срок); CRITICAL не исключается никогда.
 Отсутствующий, пустой или некорректный отчёт -> отказ: ошибка сканирования
 не трактуется как отсутствие уязвимостей.
 Код возврата: 0 — политика соблюдена, 1 — нарушение или некорректный отчёт.
@@ -18,7 +20,7 @@ import argparse
 import json
 import sys
 import tomllib
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from src import config
@@ -72,14 +74,25 @@ def check_pip_audit(report: dict, policy: dict) -> tuple[list[dict], list[str]]:
     return findings, violations
 
 
-def check_trivy(report: dict, policy: dict) -> tuple[list[dict], list[str]]:
+def _exception_for(item: dict, exceptions: list[dict], today: date) -> dict | None:
+    """Точечное исключение: только UNKNOWN, точный идентификатор и пакет, срок не истёк."""
+    if item["severity"] != "UNKNOWN":
+        return None                      # CRITICAL исключать нельзя
+    for exc in exceptions:
+        if exc["id"] == item["id"] and item["package"] in exc["packages"] and today <= exc["until"]:
+            return exc
+    return None
+
+
+def check_trivy(report: dict, policy: dict, today: date | None = None) -> tuple[list[dict], list[str]]:
     if report.get("SchemaVersion") != 2 or "ArtifactName" not in report:
         raise ReportError("Trivy: неизвестный формат отчёта (нет SchemaVersion=2 или ArtifactName)")
     results = report.get("Results")
     if not isinstance(results, list):
         raise ReportError("Trivy: в отчёте нет Results — сканирование не выполнено")
+    today = today or datetime.now(UTC).date()
     block = {s.upper() for s in policy["block_severities"]}
-    ignore = set(policy.get("ignore", []))
+    exceptions = policy.get("exceptions", [])
     findings, violations = [], []
     for res in results:
         for v in res.get("Vulnerabilities") or []:
@@ -88,7 +101,12 @@ def check_trivy(report: dict, policy: dict) -> tuple[list[dict], list[str]]:
                     "id": v.get("VulnerabilityID"), "fix": v.get("FixedVersion") or "нет",
                     "severity": sev, "target": res.get("Target")}
             findings.append(item)
-            if sev in block and item["id"] not in ignore:
+            if sev not in block:
+                continue
+            exc = _exception_for(item, exceptions, today)
+            if exc:
+                item["exception"] = f"до {exc['until']}: {exc['reason']}"
+            else:
                 violations.append(f"{item['package']} {item['version']}: {item['id']} [{sev}] "
                                   f"(исправление: {item['fix']})")
     return findings, violations
@@ -124,13 +142,17 @@ def main(argv: list[str] | None = None) -> int:
 
     config.REPORTS_DIR.mkdir(exist_ok=True)
     (config.REPORTS_DIR / f"security_gate_{kind}.json").write_text(
-        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(out, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
     print(f"{'Пакет':<28}{'Версия':<20}{'Идентификатор':<24}{'Severity':<14}Исправление")
     for f_ in out["findings"]:
         print(f"{str(f_['package']):<28}{str(f_['version']):<20}{str(f_['id']):<24}"
               f"{str(f_['severity'])[:13]:<14}{f_['fix']}")
-    print(f"Находок всего: {len(out['findings'])}; нарушений политики: {len(out['violations'])}")
+    excepted = [f_ for f_ in out["findings"] if "exception" in f_]
+    print(f"Находок всего: {len(out['findings'])}; нарушений политики: {len(out['violations'])}; "
+          f"по исключениям: {len(excepted)}")
+    for f_ in excepted:
+        print(f"  ИСКЛЮЧЕНИЕ: {f_['package']} {f_['version']}: {f_['id']} [{f_['severity']}] {f_['exception']}")
     for v in out["violations"]:
         print(f"  НАРУШЕНИЕ: {v}")
     print(f"SECURITY GATE ({kind}): {status.upper()}")

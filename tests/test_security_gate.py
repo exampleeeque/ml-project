@@ -4,13 +4,14 @@
 """
 
 import json
+from datetime import date
 
 import pytest
 
 from src.security_gate import ReportError, check_pip_audit, check_trivy
 
 PIP_POLICY = {"block_any_vulnerability": True, "block_skipped": True}
-TRIVY_POLICY = {"block_severities": ["CRITICAL", "UNKNOWN"], "ignore": []}
+TRIVY_POLICY = {"block_severities": ["CRITICAL", "UNKNOWN"], "exceptions": []}
 
 
 def trivy_report(*severities):
@@ -49,10 +50,25 @@ def test_trivy_policy(severities, blocked):
     assert bool(check_trivy(trivy_report(*severities), TRIVY_POLICY)[1]) is blocked
 
 
-def test_trivy_ignore_is_by_exact_id_only():
-    policy = {**TRIVY_POLICY, "ignore": ["CVE-0000-0"]}
-    assert check_trivy(trivy_report("CRITICAL"), policy)[1] == []
-    assert check_trivy(trivy_report("CRITICAL", "CRITICAL"), policy)[1]
+def _exc(**over):
+    e = {"id": "CVE-0000-0", "packages": ["pkg"], "until": date(2026, 12, 5), "reason": "test"}
+    e.update(over)
+    return {**TRIVY_POLICY, "exceptions": [e]}
+
+
+def test_unknown_exception_by_exact_id_and_package_within_term():
+    today = date(2026, 11, 5)
+    assert check_trivy(trivy_report("UNKNOWN"), _exc(), today)[1] == []
+    assert check_trivy(trivy_report("UNKNOWN", "UNKNOWN"), _exc(), today)[1]        # CVE-0000-1 не исключён
+    assert check_trivy(trivy_report("UNKNOWN"), _exc(packages=["other"]), today)[1]  # другой пакет
+
+
+def test_expired_exception_blocks_again():
+    assert check_trivy(trivy_report("UNKNOWN"), _exc(), date(2026, 12, 6))[1]
+
+
+def test_critical_cannot_be_excepted():
+    assert check_trivy(trivy_report("CRITICAL"), _exc(), date(2026, 11, 5))[1]
 
 
 @pytest.mark.parametrize("report", [{}, {"SchemaVersion": 2, "ArtifactName": "x"}, {"Results": []}])
