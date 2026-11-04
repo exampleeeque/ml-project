@@ -1,0 +1,14 @@
+cloudpickle==3.1.2
+joblib==1.6.0
+narwhals==2.28.0
+numpy==2.5.4
+packaging==26.3
+pandas==3.1.0
+prettytable==3.18.0
+python-dateutil==4.0.0
+scikit-learn==1.9.1
+scipy==1.18.1
+skops==0.16.0
+threadpoolctl==3.7.0
+tzdata==2026.6
+wcwidth==0.9.4

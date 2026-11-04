@@ -1,0 +1,42 @@
+# Правила data quality gate (ЛР3, раздел 5).
+# Правила хранятся отдельно от кода; изменение правил — только отдельным commit
+# с обоснованием. Проверка: python -m src.data_gate --dataset <имя>
+
+[common]
+allowed_labels = ["ham", "spam"]
+# Тексты проверяются той же политикой валидации, что и вход модели (ЛР2, src.predict):
+# не пустой, <= 1000 символов, <= 4000 байт UTF-8, без управляющих символов и суррогатов.
+text_policy = "lr2_validate_input"
+# Известные артефакты кодировки источника: управляющие символы C1 на месте типографских
+# кавычек и тире cp1252 (U+0091 ‘, U+0092 ’, U+0093 “, U+0094 ”, U+0096 –). Найдены этим gate
+# в ЛР3 (проверка ЛР2 учитывала только ASCII-управляющие символы). Допускаются только эти
+# символы и только в зафиксированном числе текстов (max_texts_with_known_artifacts);
+# любой другой управляющий символ или рост числа таких текстов — отказ.
+known_artifact_chars = ["U+0091", "U+0092", "U+0093", "U+0094", "U+0096"]
+
+# Сырой файл датасета (ЛР1). Проверяется перед подготовкой контрольной выборки и обучением.
+[datasets.raw]
+path = "data/raw/SMSSpamCollection"
+header = false
+columns = ["label", "text"]
+min_rows = 5000                      # в файле 5 574 строки
+max_rows = 6000
+spam_share = [0.10, 0.17]            # фактически 0,134
+max_normalized_duplicates = 500      # фактически 415; рост — признак подмены или склейки
+max_texts_with_known_artifacts = 35  # фактически 35 сообщений (50 символов)
+sha256 = "7d039a24a6083ed9ef0f806ebad56bbb976e3aeb8de05669173bfdc4996c239d"
+
+# Неизменяемая контрольная выборка CI (= тестовая выборка ЛР2), создаётся src.control_set.
+[datasets.control]
+path = "data/ci/control.tsv"
+header = true
+columns = ["row_id", "label", "text"]
+min_rows = 1000                      # фактически 1 032
+max_rows = 1100
+spam_share = [0.10, 0.15]            # фактически 0,124
+max_normalized_duplicates = 0        # дубликаты удалены до разбиения (ЛР2)
+max_texts_with_known_artifacts = 8   # фактически 8 сообщений
+# Ожидаемая версия данных и хэш контрольной выборки.
+data_id = "smsspam-raw-7d039a24a608-dedup-97a39c090cb8"
+manifest = "reports/control_set.json"
+sha256 = "95e591850371da175749fda49147503a1798780b0404e044b7d88f6c4866c513"

@@ -39,3 +39,7 @@ metrics/robustness_details.csv
 .DS_Store
 .vscode/
 .idea/
+
+# --- ЛР3: результаты запусков gates и сканеров ---
+reports/
+.ruff_cache/

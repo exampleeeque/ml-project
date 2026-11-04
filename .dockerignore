@@ -1,0 +1,36 @@
+# Контекст сборки формируется по принципу «всё запрещено, кроме перечисленного».
+*
+
+# Разрешены только файлы, которые копирует Dockerfile
+!requirements-runtime.txt
+!src/config.py
+!src/data.py
+!src/predict.py
+!integrity/MODEL_SHA256SUMS
+!models/spam_tfidf_logreg.skops
+
+# Явно исключено (дублирует правило «*» для наглядности и на случай его изменения):
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+notebooks/
+data/
+reports/
+metrics/
+tests/
+.env
+.env.*
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+*.kdbx
+.vscode/
+.idea/
+.DS_Store

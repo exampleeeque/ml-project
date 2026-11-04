@@ -1,0 +1,17 @@
+# Политика model quality gate (ЛР3, раздел 6).
+# Baseline хранится отдельно: metrics/baseline.json (ЛР2, в Git, не перезаписывается в CI).
+# Результат текущего запуска: reports/candidate_metrics.json (не в Git).
+
+baseline_path = "metrics/baseline.json"
+candidate_path = "reports/candidate_metrics.json"
+
+metric = "f1_spam"            # одна основная метрика, определение — src.metrics.evaluate
+direction = "higher"          # higher: больше — лучше; lower: меньше — лучше (например, MAE)
+relative_tolerance = 0.05     # допустимое относительное ухудшение 5 %
+# Абсолютный порог применяется только при нулевом baseline (относительный порог теряет смысл).
+# 0,5 — заметно выше константного предиктора (F1 = 0) и ниже любой рабочей модели.
+absolute_threshold = 0.5
+value_range = [0.0, 1.0]      # допустимая шкала F1
+
+require_same_data_id = true   # несовместимая версия данных = отказ
+require_same_size = true      # размер контрольной выборки = test_size baseline

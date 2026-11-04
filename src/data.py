@@ -102,7 +102,7 @@ def prepare(df: pd.DataFrame) -> pd.DataFrame:
 def data_version(raw_sha256: str, prepared: pd.DataFrame) -> dict:
     """Идентификатор версии данных: хэш сырого файла + хэш подготовленного набора."""
     canon = "\n".join(f"{r}\t{lab}\t{t}" for r, lab, t in
-                      zip(prepared["row_id"], prepared["label"], prepared["text"]))
+                      zip(prepared["row_id"], prepared["label"], prepared["text"], strict=True))
     prepared_sha = hashlib.sha256(canon.encode("utf-8")).hexdigest()
     return {
         "data_id": f"smsspam-raw-{raw_sha256[:12]}-dedup-{prepared_sha[:12]}",

@@ -1,0 +1,57 @@
+# Политика security gate (ЛР3, разделы 4 и 8).
+
+[pip_audit]
+# Строгая политика: любая известная уязвимость зависимости приложения блокирует сборку.
+# pip-audit не сообщает severity, поэтому фильтр по уровню здесь не применяется.
+block_any_vulnerability = true
+# Пакет, который pip-audit не смог проверить (skip), считается непроверенным, а не безопасным.
+block_skipped = true
+
+[trivy]
+# Блокирующие уровни для образа. UNKNOWN: неизвестная severity не считается безопасной.
+block_severities = ["CRITICAL", "UNKNOWN"]
+# Исключения: только для UNKNOWN (CRITICAL не исключается), по точному идентификатору
+# и пакету, с обоснованием и сроком. После срока находка снова блокирует сборку.
+# Пересмотр: при обновлении digest базового образа или по истечении срока.
+
+[[trivy.exceptions]]
+id = "CVE-2026-109518"
+packages = ["apt", "libapt-pkg7.0"]
+until = 2026-12-05
+reason = "Severity ещё не назначена; apt не запускается в контейнере (пользователь app без прав root, нет оболочки входа). Исправление 3.0.4 придёт с обновлением базового образа"
+
+[[trivy.exceptions]]
+id = "CVE-2026-119371"
+packages = ["libsqlite3-0"]
+until = 2026-12-05
+reason = "Severity ещё не назначена, исправления нет; приложение не использует sqlite3 (модуль не импортируется src.predict)"
+
+[[trivy.exceptions]]
+id = "CVE-2026-119372"
+packages = ["libsqlite3-0"]
+until = 2026-12-05
+reason = "Как CVE-2026-119371"
+
+[[trivy.exceptions]]
+id = "CVE-2026-119374"
+packages = ["libsqlite3-0"]
+until = 2026-12-05
+reason = "Как CVE-2026-119371"
+
+[[trivy.exceptions]]
+id = "CVE-2026-119375"
+packages = ["libsqlite3-0"]
+until = 2026-12-05
+reason = "Как CVE-2026-119371"
+
+[[trivy.exceptions]]
+id = "CVE-2026-119376"
+packages = ["libsqlite3-0"]
+until = 2026-12-05
+reason = "Как CVE-2026-119371"
+
+[[trivy.exceptions]]
+id = "CVE-2026-119379"
+packages = ["libsqlite3-0"]
+until = 2026-12-05
+reason = "Как CVE-2026-119371"

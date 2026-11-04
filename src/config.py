@@ -1,7 +1,7 @@
 """Общие параметры проекта: пути, seed, гиперпараметры и пределы входных данных.
 
 Все значения, влияющие на воспроизводимость и на политику валидации,
-собраны в одном месте, чтобы их можно было сослаться в отчёте и в ЛР3/ЛР4.
+собраны в одном месте, чтобы на них можно было сослаться в отчёте и в ЛР3/ЛР4.
 """
 
 from __future__ import annotations
@@ -17,6 +17,12 @@ RAW_DATA_KEY = "data/raw/SMSSpamCollection"               # путь в этал
 LABELS = ("ham", "spam")
 POSITIVE_LABEL = "spam"
 DEDUP_RULE = "lower+collapse-whitespace"                  # правило удаления дубликатов
+
+# --- ЛР3: контрольная выборка CI, конфигурации gates, отчёты ---
+CONTROL_PATH = ROOT / "data" / "ci" / "control.tsv"       # генерируется src.control_set
+CONFIG_DIR = ROOT / "config"
+REPORTS_DIR = ROOT / "reports"                            # результаты запуска (не в Git)
+BASELINE_PATH = ROOT / "metrics" / "baseline.json"        # baseline ЛР2 (в Git)
 
 # --- Модель и артефакты ---
 MODELS_DIR = ROOT / "models"
