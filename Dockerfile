@@ -13,7 +13,11 @@ WORKDIR /app
 
 # Только runtime-зависимости (без Jupyter, pytest, линтеров и сканеров).
 COPY requirements-runtime.txt .
-RUN pip install --no-cache-dir --root-user-action=ignore -r requirements-runtime.txt && pip uninstall -y --root-user-action=ignore pip setuptools wheel && find /usr/local/lib -path 'ensurepip/_bundled' -name '*.whl' -delete
+# После установки pip, setuptools и колёса ensurepip удаляются: в работе образа они не нужны,
+# а их вложенные библиотеки (urllib3, msgpack) Trivy находит как уязвимые.
+RUN pip install --no-cache-dir --root-user-action=ignore -r requirements-runtime.txt \
+    && pip uninstall -y --root-user-action=ignore pip setuptools wheel \
+    && find /usr/local/lib -path '*ensurepip/_bundled*' -name '*.whl' -delete
 
 # Пользователь без root-привилегий и без оболочки входа.
 RUN groupadd --system --gid 10001 app \
