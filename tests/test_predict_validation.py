@@ -21,6 +21,7 @@ from src import config
 from src.predict import InputValidationError, Limits, ModelIntegrityError, load_model, predict
 
 SMALL = Limits(max_batch=3, max_bytes=40, max_chars=10)
+DEFAULT = Limits()
 
 
 @pytest.fixture
@@ -40,7 +41,7 @@ def tiny_model():
                      ("clf", LogisticRegression(random_state=0))]).fit(texts, y)
 
 
-def expect_rejected(data, code, model, limits=Limits()):
+def expect_rejected(data, code, model, limits=DEFAULT):
     with pytest.raises(InputValidationError) as exc:
         predict(data, model=model, limits=limits)
     assert exc.value.code == code
@@ -119,7 +120,7 @@ def test_tampered_model_file_rejected(tmp_path):
 def test_valid_single_and_batch(tiny_model):
     single = predict("Win a FREE prize now, call!", model=tiny_model)
     assert single["label"] == "spam" and 0.5 <= single["spam_probability"] <= 1.0
-    batch = predict(["see you at lunch", {"text": "free cash prize"}, "hello".encode()], model=tiny_model)
+    batch = predict(["see you at lunch", {"text": "free cash prize"}, b"hello"], model=tiny_model)
     assert [r["label"] for r in batch][:2] == ["ham", "spam"]
     assert all(0.0 <= r["spam_probability"] <= 1.0 for r in batch)
 

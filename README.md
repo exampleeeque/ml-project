@@ -114,3 +114,95 @@ ssh -N -L 8888:127.0.0.1:8888 mlvm
 | pip-audit (ЛР1) | 1 уязвимость pip, исправлена обновлением |
 | Bandit (ЛР2) | B310 в `src/download_dataset.py` исправлена; повторный запуск — нет находок |
 | pytest (ЛР2) | 26 тестов пройдены |
+## ЛР3. Безопасный CI/CD
+
+Платформа: GitHub Actions, файл `.github/workflows/ci.yml`. Запуск: push в `main`,
+каждый pull request, ручной запуск (`workflow_dispatch`). Раннер `ubuntu-24.04-arm`
+(та же архитектура ARM64, что и у ВМ разработки).
+
+### Последовательность pipeline
+
+| № | Этап | Команда | Job |
+|---|------|---------|-----|
+| 1 | Код, датасет с UCI и проверка SHA-256 | `python -m src.download_dataset`, `sha256sum -c integrity/SHA256SUMS` | quality |
+| 2 | Зависимости (зафиксированные версии) | `pip install -r requirements-dev.txt`, `pip check` | quality |
+| 3 | Линтер и статический анализ | `ruff check src/ tests/`, `python -m bandit -r src/` | quality |
+| 4 | Тесты | `python -m pytest tests/ -q` | quality |
+| 5 | Аудит зависимостей | `pip-audit --strict --no-deps -r requirements-runtime.txt -r requirements-dev.txt` | quality |
+| 6 | Data gate | `python -m src.data_gate --dataset raw`, `python -m src.control_set`, `python -m src.data_gate --dataset control` | quality |
+| 7 | Обучение и оценка кандидата, model gate | `python -m src.train`, `python -m src.evaluate`, `python -m src.model_gate` | quality |
+| 8 | Проверка Dockerfile | `trivy config --exit-code 1 Dockerfile` | image |
+| 9 | Сборка образа | `docker build -t ml-project:lab3 .` | image |
+| 10 | Сканирование образа и security gate | `trivy image ...`, `python -m src.security_gate --trivy ...` | image |
+| 11 | UID и smoke-проверка | `docker run --rm --entrypoint id ml-project:lab3 -u`, запуск предсказания | image |
+| 12 | Отчёты | артефакты `reports-quality`, `reports-image` (сохраняются и при сбое) | оба |
+
+Job `image` запускается только после успешного job `quality` (`needs`). Любой непройденный
+шаг завершает job с ошибкой. `continue-on-error` не используется. Все команды выполняются
+в `bash -eo pipefail`, поэтому `команда | tee отчёт` возвращает код команды.
+
+### Политики безопасности
+
+* **Зависимости.** Строгая политика: любая находка pip-audit блокирует сборку. Пакет, который
+  не удалось проверить, тоже блокирует. pip-audit не сообщает severity.
+  `requirements-runtime.txt` — зависимости образа, `requirements-dev.txt` — окружение CI
+  с инструментами проверок. Все версии зафиксированы.
+* **Образ.** Trivy (версия 0.76.1, официальный релиз GitHub, SHA-256 архива проверяется)
+  создаёт полный JSON-отчёт. `src.security_gate` блокирует сборку на уровнях **CRITICAL и UNKNOWN**:
+  неизвестная severity не считается безопасной. Отсутствующий или некорректный отчёт, ошибка
+  загрузки базы или сканирования также дают отказ. Исключения допускаются только по точному
+  идентификатору в `config/security_policy.toml` с обоснованием. Сейчас исключений нет.
+* **Dockerfile.** `trivy config --exit-code 1` блокирует сборку при любой найденной ошибке конфигурации.
+* **Секреты.** Для работы pipeline секреты не нужны и не создавались. Токен `GITHUB_TOKEN`
+  имеет только право `contents: read`. `checkout` выполняется с `persist-credentials: false`.
+  Событие `pull_request_target` не используется: код из внешних PR выполняется без секретов.
+  Build arguments и переменные образа секретов не содержат.
+* **Действия CI** зафиксированы по SHA коммита, версия указана в комментарии. Таймауты jobs
+  составляют 20 и 25 минут.
+
+### Данные и модель в CI
+
+* Датасет загружается с UCI по HTTPS и сверяется с эталоном `integrity/SHA256SUMS` (ЛР1).
+* **Контрольная выборка CI** `data/ci/control.tsv` совпадает с тестовой выборкой ЛР2: 1 032 сообщения,
+  seed 42, стратификация. Файл детерминированно воспроизводится командой `python -m src.control_set`.
+  Источник: UCI SMS Spam Collection (CC BY 4.0). Схема: `row_id<TAB>label<TAB>text`, UTF-8,
+  с заголовком. Ожидаемые SHA-256 и версия данных записаны в `config/data_gate.toml`.
+  Сам файл в Git не хранится, поскольку тексты сообщений не публикуются.
+* Кандидатная модель обучается в CI (около 1 с) и передаётся в job `image` как артефакт.
+  Там её SHA-256 сверяется с выходом job `quality`.
+
+### Gates
+
+* **Data gate.** Правила хранятся в `config/data_gate.toml`, проверка выполняется модулем `src/data_gate.py`, отчёт сохраняется в `reports/data_gate_*.json`.
+  В датасете есть известные артефакты кодировки источника: C1-символы U+0091–U+0096 на месте
+  типографских кавычек и тире cp1252. Они встречаются в 35 сообщениях сырого файла и в 8 сообщениях
+  контрольной выборки. Gate допускает только эти символы и только в зафиксированном числе текстов.
+  Любой другой управляющий символ или рост числа таких текстов приводит к отказу.
+* **Model gate.** Политика хранится в `config/model_gate.toml`, baseline — в `metrics/baseline.json` (ЛР2, F1(spam) = 0,949). Правило прохождения: `candidate ≥ baseline × 0,95`, то есть ≥ 0,90155. Baseline не перезаписывается: `train.py` меняет его только с ключом `--update-baseline` вручную. Результат сохраняется в `reports/model_gate.json`.
+* **Security gate.** Политика хранится в `config/security_policy.toml`, проверка выполняется модулем `src/security_gate.py`.
+
+> Контрольная выборка совпадает с тестовой выборкой ЛР2. Повторная оценка на ней в каждом
+> запуске CI — это регрессионный контроль, а не независимая оценка качества. Финальная
+> оценка выполняется на новой отложенной выборке.
+
+### Локальная проверка (ВМ, пользователь mluser, из корня проекта)
+
+```bash
+source .venv/bin/activate
+ruff check src/ tests/
+python -m bandit -r src/
+python -m pytest tests/ -q
+pip-audit --strict --no-deps -r requirements-runtime.txt -r requirements-dev.txt
+python -m src.data_gate --dataset raw
+python -m src.control_set && python -m src.data_gate --dataset control
+python -m src.evaluate && python -m src.model_gate      # оценка сохранённой модели ЛР2
+```
+
+Docker (пользователь sysadmin, так как mluser не входит в группу docker):
+
+```bash
+sudo docker build -t ml-project:lab3 .
+sudo docker run --rm --entrypoint id ml-project:lab3 -u          # ожидается 10001
+sudo docker run --rm --network none --read-only --cap-drop ALL \
+  --security-opt no-new-privileges:true --tmpfs /tmp ml-project:lab3 "Win a FREE prize, call now"
+```

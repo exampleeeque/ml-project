@@ -1,0 +1,221 @@
+# Безопасный CI/CD для ML-проекта (ЛР3).
+# Порядок: код и проверенные данные -> зависимости -> Ruff и Bandit -> тесты ->
+# аудит зависимостей -> data gate -> обучение и оценка кандидата -> model gate ->
+# (job image) проверка Dockerfile -> сборка образа -> Trivy и security gate ->
+# проверка UID и smoke-проверка -> отчёты.
+# Любой непройденный шаг останавливает job; job image запускается только после
+# успешного job quality. Отчёты сохраняются и при сбое, статус запуска остаётся failed.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:          # не pull_request_target: код из PR выполняется без секретов и с правами чтения
+  workflow_dispatch:
+
+permissions:
+  contents: read         # минимальные права токена для всех jobs
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash          # bash -eo pipefail: ошибка любой команды конвейера (cmd | tee) завершает шаг
+
+env:
+  PYTHON_VERSION: "3.14.4"
+  TRIVY_VERSION: "0.76.1"
+  # SHA-256 архива trivy_0.76.1_Linux-ARM64.tar.gz из официального файла checksums релиза
+  TRIVY_SHA256: "e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f"
+  IMAGE: "ml-project:lab3"
+
+jobs:
+  quality:
+    name: quality (lint, tests, audit, data & model gates)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    outputs:
+      model_sha256: ${{ steps.model_hash.outputs.model_sha256 }}
+    steps:
+      - name: Получение кода
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Установка Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Сведения о commit
+        run: |
+          mkdir -p reports
+          cat > reports/commit.json <<EOF
+          {"commit": "${GITHUB_SHA}", "ref": "${GITHUB_REF}", "event": "${GITHUB_EVENT_NAME}",
+           "run_id": "${GITHUB_RUN_ID}", "run_attempt": "${GITHUB_RUN_ATTEMPT}",
+           "started_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+          EOF
+          cat reports/commit.json
+
+      - name: Получение датасета и проверка SHA-256
+        run: |
+          python -m src.download_dataset
+          sha256sum -c integrity/SHA256SUMS
+
+      - name: Установка зависимостей (зафиксированные версии)
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pip check
+          ruff --version; python -m bandit --version | head -1; pip-audit --version; python -m pytest --version
+
+      - name: Ruff
+        run: ruff check src/ tests/ --output-format concise | tee reports/ruff.txt
+
+      - name: Bandit
+        run: python -m bandit -r src/ | tee reports/bandit.txt
+
+      - name: Тесты
+        run: python -m pytest tests/ -q --junitxml=reports/pytest.xml | tee reports/pytest.txt
+
+      - name: Аудит зависимостей (pip-audit, строгая политика)
+        id: audit
+        run: |
+          pip-audit --strict --no-deps --desc off \
+            -r requirements-runtime.txt -r requirements-dev.txt \
+            -f json -o reports/pip-audit.json
+
+      - name: Отчёт аудита и проверка политики
+        if: ${{ !cancelled() && steps.audit.outcome != 'skipped' }}
+        run: python -m src.security_gate --pip-audit reports/pip-audit.json
+
+      - name: Data gate — сырой датасет
+        run: python -m src.data_gate --dataset raw
+
+      - name: Контрольная выборка CI
+        run: python -m src.control_set
+
+      - name: Data gate — контрольная выборка
+        run: python -m src.data_gate --dataset control
+
+      - name: Обучение кандидатной модели
+        run: python -m src.train
+
+      - name: Оценка кандидата на контрольной выборке
+        run: python -m src.evaluate
+
+      - name: Model gate
+        run: python -m src.model_gate
+
+      - name: SHA-256 модели
+        id: model_hash
+        run: |
+          sha256sum -c integrity/MODEL_SHA256SUMS
+          sha=$(sha256sum models/spam_tfidf_logreg.skops | cut -d' ' -f1)
+          echo "$sha  models/spam_tfidf_logreg.skops" | tee reports/model_sha256.txt
+          echo "model_sha256=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Передача модели в job сборки образа
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: candidate-model
+          path: |
+            models/spam_tfidf_logreg.skops
+            integrity/MODEL_SHA256SUMS
+          retention-days: 1          # модель нужна только job image этого запуска
+          if-no-files-found: error
+
+      - name: Сохранение отчётов (в том числе при сбое)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: reports-quality
+          path: reports/
+          retention-days: 30
+          if-no-files-found: warn
+
+  image:
+    name: image (build, Trivy, smoke)
+    needs: quality
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - name: Получение кода
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Установка Python (только для проверки отчётов, без зависимостей)
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Получение модели, прошедшей model gate
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: candidate-model
+          path: .
+
+      - name: Проверка SHA-256 полученной модели
+        env:
+          EXPECTED_SHA: ${{ needs.quality.outputs.model_sha256 }}
+        run: |
+          mkdir -p reports
+          echo "${EXPECTED_SHA}  models/spam_tfidf_logreg.skops" | sha256sum -c -
+          sha256sum -c integrity/MODEL_SHA256SUMS
+
+      - name: Установка Trivy из официального релиза с проверкой SHA-256
+        run: |
+          archive="trivy_${TRIVY_VERSION}_Linux-ARM64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${archive}"
+          echo "${TRIVY_SHA256}  $RUNNER_TEMP/$archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/trivy"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/trivy" trivy
+          echo "$RUNNER_TEMP/trivy" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/trivy/trivy" --version
+
+      - name: Проверка конфигурации Dockerfile (trivy config)
+        run: trivy config --exit-code 1 Dockerfile | tee reports/trivy-config.txt
+
+      - name: Сборка образа
+        run: |
+          docker build -t "$IMAGE" .
+          docker image inspect "$IMAGE" --format '{{.Id}}' | tee reports/image_id.txt
+
+      - name: Сканирование образа (trivy image)
+        run: |
+          date -u +%Y-%m-%dT%H:%M:%SZ | tee reports/trivy-scan-date.txt
+          trivy image --scanners vuln --format json -o reports/trivy-image.json "$IMAGE"
+          trivy version --format json > reports/trivy-version.json
+          trivy convert --format table reports/trivy-image.json | tee reports/trivy-image.txt
+
+      - name: Security gate — образ (CRITICAL и UNKNOWN блокируют)
+        run: python -m src.security_gate --trivy reports/trivy-image.json
+
+      - name: Проверка запуска без root
+        run: |
+          uid=$(docker run --rm --entrypoint id "$IMAGE" -u)
+          echo "UID в контейнере: $uid" | tee reports/container_uid.txt
+          test "$uid" != "0"
+
+      - name: Smoke-проверка модели в контейнере
+        run: |
+          run() { docker run --rm --network none --read-only --cap-drop ALL \
+                    --security-opt no-new-privileges:true --tmpfs /tmp "$IMAGE" "$@"; }
+          spam=$(run "Congratulations! You have won a FREE prize. Call 09061701461 to claim")
+          ham=$(run)
+          printf 'spam-вход: %s\nham-вход (CMD по умолчанию): %s\n' "$spam" "$ham" | tee reports/smoke.txt
+          grep -q "'label': 'spam'" <<< "$spam"
+          grep -q "'label': 'ham'" <<< "$ham"
+
+      - name: Сохранение отчётов (в том числе при сбое)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: reports-image
+          path: reports/
+          retention-days: 30
+          if-no-files-found: warn

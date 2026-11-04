@@ -4,12 +4,17 @@
   1) проверка SHA-256 датасета относительно эталона ЛР1;
   2) удаление дубликатов, стратифицированное разбиение train/test 80/20, seed 42;
   3) подбор C 5-кратной стратифицированной кросс-валидацией ТОЛЬКО на train;
-  4) единственная оценка на отложенном test, сравнение с DummyClassifier;
-  5) сохранение модели (skops), её SHA-256, параметров, метрик и графиков.
+  4) оценка на отложенном test, сравнение с DummyClassifier;
+  5) сохранение модели (skops) и её SHA-256.
+
+ЛР3: по умолчанию train.py обучает КАНДИДАТНУЮ модель и пишет параметры
+и метрики обучения в reports/. Baseline (metrics/baseline.json) больше
+не перезаписывается автоматически: только явным ключом --update-baseline.
 
 Запуск из корня проекта:
-    python -m src.train            # первое обучение
-    python -m src.train --force    # перезаписать существующую модель и её эталон SHA-256
+    python -m src.train                    # кандидатная модель (так запускает CI)
+    python -m src.train --force            # перезаписать существующий файл модели
+    python -m src.train --force --update-baseline   # осознанное обновление baseline
 """
 
 from __future__ import annotations
@@ -19,27 +24,22 @@ import hashlib
 import json
 import platform
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
-import sklearn  # noqa: E402
-from sklearn.dummy import DummyClassifier  # noqa: E402
-from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: E402
-from sklearn.linear_model import LogisticRegression  # noqa: E402
-from sklearn.metrics import (ConfusionMatrixDisplay, accuracy_score,  # noqa: E402
-                             classification_report, confusion_matrix,
-                             precision_recall_fscore_support)
-from sklearn.model_selection import (GridSearchCV, StratifiedKFold,  # noqa: E402
-                                     train_test_split)
-from sklearn.pipeline import Pipeline  # noqa: E402
+import numpy as np
+import pandas as pd
+import sklearn
+from sklearn.dummy import DummyClassifier
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_split
+from sklearn.pipeline import Pipeline
 
-from src import config  # noqa: E402
-from src.data import check_raw, data_version, load_raw, prepare, sha256_of, verify_raw_data  # noqa: E402
-from src.predict import preprocess  # noqa: E402
+from src import config
+from src.data import check_raw, data_version, load_raw, prepare, sha256_of, verify_raw_data
+from src.metrics import PRIMARY_METRIC, evaluate, primary_value
+from src.predict import preprocess
 
 
 def build_pipeline() -> Pipeline:
@@ -54,29 +54,36 @@ def split(df: pd.DataFrame):
                             random_state=config.SEED, stratify=df["y"])
 
 
-def evaluate(y_true, y_pred) -> dict:
-    p, r, f, s = precision_recall_fscore_support(y_true, y_pred, labels=[0, 1], zero_division=0)
-    per_class = {lab: {"precision": round(float(p[i]), 4), "recall": round(float(r[i]), 4),
-                       "f1": round(float(f[i]), 4), "support": int(s[i])}
-                 for i, lab in enumerate(config.LABELS)}
-    avg = {}
-    for mode in ("macro", "weighted"):
-        pm, rm, fm, _ = precision_recall_fscore_support(y_true, y_pred, average=mode, zero_division=0)
-        avg[mode] = {"precision": round(float(pm), 4), "recall": round(float(rm), 4), "f1": round(float(fm), 4)}
-    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
-    return {"accuracy": round(float(accuracy_score(y_true, y_pred)), 4),
-            "per_class": per_class, "average": avg,
-            "confusion_matrix": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)}}
-
-
 def ids_hash(ids) -> str:
     return hashlib.sha256(",".join(map(str, sorted(ids))).encode()).hexdigest()
 
 
+def save_confusion_figure(y_test, y_dummy, y_pred, best_c) -> None:
+    """Матрицы ошибок для отчёта (только при обновлении baseline)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
+
+    fig, axes = plt.subplots(1, 2, figsize=(9, 4))
+    for ax, yp, title in ((axes[0], y_dummy, "DummyClassifier (всегда ham)"),
+                          (axes[1], y_pred, f"TF-IDF + LogReg (C={best_c})")):
+        ConfusionMatrixDisplay(confusion_matrix(y_test, yp, labels=[0, 1]),
+                               display_labels=list(config.LABELS)).plot(ax=ax, colorbar=False, cmap="Blues")
+        ax.set_title(title)
+        ax.set_xlabel("Предсказанный класс")
+        ax.set_ylabel("Истинный класс")
+    plt.tight_layout()
+    plt.savefig(config.FIG_DIR / "confusion_matrix.png", dpi=150)
+    plt.close(fig)
+
+
 def _parse(argv):
-    parser = argparse.ArgumentParser(description="Обучение базовой модели")
+    parser = argparse.ArgumentParser(description="Обучение модели")
     parser.add_argument("--force", action="store_true",
                         help="перезаписать существующую модель и её эталон SHA-256")
+    parser.add_argument("--update-baseline", action="store_true",
+                        help="записать metrics/baseline.json (только осознанно, вручную)")
     return parser.parse_args(argv)
 
 
@@ -90,7 +97,8 @@ def main(argv: list[str] | None = None) -> int:
               f"{config.MODEL_REFERENCE.name}. Для переобучения запустите с --force.")
         return 1
 
-    for d in (config.MODELS_DIR, config.METRICS_DIR, config.FIG_DIR):
+    out_dir = config.METRICS_DIR if args.update_baseline else config.REPORTS_DIR
+    for d in (config.MODELS_DIR, out_dir):
         d.mkdir(parents=True, exist_ok=True)
 
     # 1. Данные
@@ -122,36 +130,17 @@ def main(argv: list[str] | None = None) -> int:
     model.fit(X_train, y_train)
     fit_time = time.perf_counter() - t0
     cv_scores = {str(c): round(float(s), 4) for c, s in
-                 zip(search.cv_results_["param_clf__C"], search.cv_results_["mean_test_score"])}
+                 zip(search.cv_results_["param_clf__C"], search.cv_results_["mean_test_score"], strict=True)}
     print(f"CV F1(spam) по C: {cv_scores}; выбрано C={best_c}")
     print(f"Время подбора: {search_time:.2f} c, время обучения итоговой модели: {fit_time:.3f} c")
 
-    # 4. Оценка на test (один раз) и ориентир
+    # 4. Оценка на test и ориентир
     dummy = DummyClassifier(strategy="most_frequent").fit(X_train, y_train)
     y_dummy = dummy.predict(X_test)
     proba = model.predict_proba(X_test)[:, 1]
     y_pred = (proba >= config.DECISION_THRESHOLD).astype(int)
     m_model, m_dummy = evaluate(y_test, y_pred), evaluate(y_test, y_dummy)
-    print(classification_report(y_test, y_pred, target_names=list(config.LABELS), digits=4))
-    print(classification_report(y_test, y_dummy, target_names=list(config.LABELS), digits=4, zero_division=0))
-
-    # Ошибочные предсказания
-    errors = test_df.assign(spam_probability=proba.round(4), pred=y_pred)
-    errors = errors[errors["pred"] != errors["y"]][["row_id", "label", "spam_probability", "text"]]
-    errors.to_csv(config.METRICS_DIR / "test_errors.csv", index=False)
-
-    # Матрица ошибок
-    fig, axes = plt.subplots(1, 2, figsize=(9, 4))
-    for ax, yp, title in ((axes[0], y_dummy, "DummyClassifier (всегда ham)"),
-                          (axes[1], y_pred, f"TF-IDF + LogReg (C={best_c})")):
-        ConfusionMatrixDisplay(confusion_matrix(y_test, yp, labels=[0, 1]),
-                               display_labels=list(config.LABELS)).plot(ax=ax, colorbar=False, cmap="Blues")
-        ax.set_title(title)
-        ax.set_xlabel("Предсказанный класс")
-        ax.set_ylabel("Истинный класс")
-    plt.tight_layout()
-    plt.savefig(config.FIG_DIR / "confusion_matrix.png", dpi=150)
-    plt.close(fig)
+    print(classification_report(y_test, y_pred, target_names=list(config.LABELS), digits=4, zero_division=0))
 
     # 5. Сохранение модели и хэша
     sio.dump(model, config.MODEL_PATH)
@@ -161,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Модель: {rel}, SHA-256 {model_sha}")
 
     params = {
-        "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "created_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         "model": "Pipeline(TfidfVectorizer -> LogisticRegression)",
         "tfidf": {k: list(v) if isinstance(v, tuple) else v for k, v in config.TFIDF_PARAMS.items()},
         "logreg": {**config.LOGREG_PARAMS, "C": best_c},
@@ -177,23 +166,30 @@ def main(argv: list[str] | None = None) -> int:
                      "numpy": np.__version__, "pandas": pd.__version__, "skops": skops.__version__},
         "model_file": rel, "model_sha256": model_sha,
         "vocabulary_size": int(len(model.named_steps["tfidf"].vocabulary_)),
+        "test_metrics": m_model,
     }
-    (config.METRICS_DIR / "train_params.json").write_text(
-        json.dumps(params, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out_dir / "train_params.json").write_text(json.dumps(params, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"F1(spam) на test = {primary_value(m_model)} (Dummy: {primary_value(m_dummy)})")
 
-    baseline = {
-        "primary_metric": "f1_spam",
-        "value": m_model["per_class"]["spam"]["f1"],
-        "test_size": int(len(test_df)),
-        "data_id": version["data_id"],
-        "model_sha256": model_sha,
-        "threshold": config.DECISION_THRESHOLD,
-        "model": m_model,
-        "reference_dummy_most_frequent": m_dummy,
-    }
-    (config.METRICS_DIR / "baseline.json").write_text(
-        json.dumps(baseline, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Основная метрика F1(spam) = {baseline['value']} (Dummy: {m_dummy['per_class']['spam']['f1']})")
+    if args.update_baseline:
+        # Осознанное обновление ориентира: только вручную, не в CI.
+        errors = test_df.assign(spam_probability=proba.round(4), pred=y_pred)
+        errors = errors[errors["pred"] != errors["y"]][["row_id", "label", "spam_probability", "text"]]
+        errors.to_csv(config.METRICS_DIR / "test_errors.csv", index=False)
+        config.FIG_DIR.mkdir(parents=True, exist_ok=True)
+        save_confusion_figure(y_test, y_dummy, y_pred, best_c)
+        baseline = {
+            "primary_metric": PRIMARY_METRIC,
+            "value": primary_value(m_model),
+            "test_size": int(len(test_df)),
+            "data_id": version["data_id"],
+            "model_sha256": model_sha,
+            "threshold": config.DECISION_THRESHOLD,
+            "model": m_model,
+            "reference_dummy_most_frequent": m_dummy,
+        }
+        config.BASELINE_PATH.write_text(json.dumps(baseline, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"Baseline обновлён: {config.BASELINE_PATH.relative_to(config.ROOT)}")
     return 0
 
 
