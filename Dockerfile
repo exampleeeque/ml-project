@@ -3,7 +3,7 @@
 #
 # Базовый образ: официальный python, версия зафиксирована тегом и digest
 # (digest — индекс multi-arch, подходит для arm64 и amd64).
-FROM python:3.14.N-slim-trixie@sha256:ЗАМЕНИТЬ_НА_DIGEST
+FROM python:3.14.N-slim-trixie@sha256:python@sha256:930e1abba7c4e8f96ed93e8012c35d174d7732752731bbd5e8e757d7ec6f3966
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
