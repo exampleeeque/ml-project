@@ -1,11 +1,9 @@
-"""Автоматические проверки датасета.
+"""Автоматические проверки датасета (из ЛР1).
 
 1) Целостность: SHA256 файлов в data/raw/ совпадает с эталоном из integrity/SHA256SUMS.
 2) Формат: файл читается как TSV из двух столбцов, метки только ham/spam.
-
 Запуск из корня проекта:  python -m pytest -v
 """
-
 import csv
 import hashlib
 from pathlib import Path
@@ -27,7 +25,6 @@ def sha256_of(path: Path) -> str:
 
 
 def read_reference():
-    """Читает файл формата sha256sum: '<hash>  <путь относительно корня проекта>'."""
     entries = []
     for line in REFERENCE.read_text(encoding="utf-8").splitlines():
         line = line.strip()

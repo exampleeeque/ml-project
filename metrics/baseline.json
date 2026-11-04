@@ -1,0 +1,78 @@
+{
+  "primary_metric": "f1_spam",
+  "value": 0.949,
+  "test_size": 1032,
+  "data_id": "smsspam-raw-7d039a24a608-dedup-97a39c090cb8",
+  "model_sha256": "f8a60e7a786e4877b10a6e19b58ea1240d62290844d01b0850abc4fc6c1b2ef4",
+  "threshold": 0.5,
+  "model": {
+    "accuracy": 0.9874,
+    "per_class": {
+      "ham": {
+        "precision": 0.9923,
+        "recall": 0.9934,
+        "f1": 0.9928,
+        "support": 904
+      },
+      "spam": {
+        "precision": 0.9528,
+        "recall": 0.9453,
+        "f1": 0.949,
+        "support": 128
+      }
+    },
+    "average": {
+      "macro": {
+        "precision": 0.9725,
+        "recall": 0.9693,
+        "f1": 0.9709
+      },
+      "weighted": {
+        "precision": 0.9874,
+        "recall": 0.9874,
+        "f1": 0.9874
+      }
+    },
+    "confusion_matrix": {
+      "tn": 898,
+      "fp": 6,
+      "fn": 7,
+      "tp": 121
+    }
+  },
+  "reference_dummy_most_frequent": {
+    "accuracy": 0.876,
+    "per_class": {
+      "ham": {
+        "precision": 0.876,
+        "recall": 1.0,
+        "f1": 0.9339,
+        "support": 904
+      },
+      "spam": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "support": 128
+      }
+    },
+    "average": {
+      "macro": {
+        "precision": 0.438,
+        "recall": 0.5,
+        "f1": 0.4669
+      },
+      "weighted": {
+        "precision": 0.7673,
+        "recall": 0.876,
+        "f1": 0.8181
+      }
+    },
+    "confusion_matrix": {
+      "tn": 904,
+      "fp": 0,
+      "fn": 128,
+      "tp": 0
+    }
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "created_utc": "2026-11-04T18:05:31+00:00",
+  "model": "Pipeline(TfidfVectorizer -> LogisticRegression)",
+  "tfidf": {
+    "lowercase": true,
+    "ngram_range": [
+      1,
+      2
+    ],
+    "min_df": 2,
+    "sublinear_tf": true
+  },
+  "logreg": {
+    "class_weight": "balanced",
+    "solver": "liblinear",
+    "max_iter": 1000,
+    "random_state": 42,
+    "C": 10.0
+  },
+  "c_grid": [
+    0.1,
+    1.0,
+    10.0,
+    100.0
+  ],
+  "cv": "StratifiedKFold(n_splits=5, shuffle=True)",
+  "cv_scoring": "f1 (класс spam)",
+  "cv_f1_by_C": {
+    "0.1": 0.9206,
+    "1.0": 0.933,
+    "10.0": 0.9416,
+    "100.0": 0.9336
+  },
+  "seed": 42,
+  "test_size": 0.2,
+  "split": "train_test_split, stratify=y",
+  "decision_threshold": 0.5,
+  "train_size": 4127,
+  "test_size_rows": 1032,
+  "train_ids_sha256": "3b8302c17952cad30a9548764abb3b9b8aa5f05d14ed441e8349555413ac11eb",
+  "test_ids_sha256": "65eddc67b5ce233ae7fc8f27d300c124cc2dcbcf9382f1ea63c89c93abbeb30e",
+  "data": {
+    "data_id": "smsspam-raw-7d039a24a608-dedup-97a39c090cb8",
+    "raw_sha256": "7d039a24a6083ed9ef0f806ebad56bbb976e3aeb8de05669173bfdc4996c239d",
+    "prepared_sha256": "97a39c090cb88408adc8166cc16648a138d8a9f6e9121016d5d0ee02e7ccb8ca",
+    "dedup_rule": "lower+collapse-whitespace",
+    "rows_prepared": 5159
+  },
+  "data_checks": {
+    "rows": 5574,
+    "columns": [
+      "label",
+      "text"
+    ],
+    "missing": {
+      "label": 0,
+      "text": 0
+    },
+    "labels": [
+      "ham",
+      "spam"
+    ],
+    "labels_valid": true,
+    "blank_texts": 0,
+    "exact_duplicates": 403,
+    "normalized_duplicates": 415,
+    "conflicting_labels": 0,
+    "class_counts": {
+      "ham": 4827,
+      "spam": 747
+    }
+  },
+  "time_seconds": {
+    "grid_search": 1.11,
+    "final_fit": 0.06
+  },
+  "versions": {
+    "python": "3.14.4",
+    "scikit-learn": "1.9.1",
+    "numpy": "2.5.4",
+    "pandas": "3.1.0",
+    "skops": "0.16.0"
+  },
+  "model_file": "models/spam_tfidf_logreg.skops",
+  "model_sha256": "f8a60e7a786e4877b10a6e19b58ea1240d62290844d01b0850abc4fc6c1b2ef4",
+  "vocabulary_size": 10074
+}

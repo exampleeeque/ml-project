@@ -25,6 +25,16 @@ data/*
 models/*
 !models/.gitkeep
 
+# --- ЛР2: файлы метрик с текстами сообщений из датасета ---
+metrics/test_errors.csv
+metrics/robustness_details.csv
+
+# --- ЛР2: сериализованные модели вне models/ ---
+*.pkl
+*.pickle
+*.joblib
+*.skops
+
 # --- Служебные файлы ОС и IDE ---
 .DS_Store
 .vscode/
