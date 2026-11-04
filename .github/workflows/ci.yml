@@ -91,8 +91,11 @@ jobs:
         if: ${{ !cancelled() && steps.audit.outcome != 'skipped' }}
         run: python -m src.security_gate --pip-audit reports/pip-audit.json
 
-      - name: Data gate — сырой датасет
-        run: python -m src.data_gate --dataset raw
+      - name: Data gate — контрольная выборка
+        run: |
+          # ДЕМОНСТРАЦИЯ: проверяется испорченная КОПИЯ, исходные данные не меняются
+          python -m src.control_set --demo-corrupt data/ci/control_demo_broken.tsv
+          python -m src.data_gate --dataset control --input data/ci/control_demo_broken.tsv
 
       - name: Контрольная выборка CI
         run: python -m src.control_set
