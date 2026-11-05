@@ -196,7 +196,10 @@ jobs:
           trivy convert --format table reports/trivy-image.json | tee reports/trivy-image.txt
 
       - name: Security gate — образ (CRITICAL и UNKNOWN блокируют)
-        run: python -m src.security_gate --trivy reports/trivy-image.json
+        run: |
+          python -m src.security_gate --trivy reports/trivy-image.json
+          echo "ДЕМОНСТРАЦИЯ: имитированный отчёт с CRITICAL, не результат реального сканирования"
+          python -m src.security_gate --trivy tests/fixtures/trivy_simulated_critical.json
 
       - name: Проверка запуска без root
         run: |
