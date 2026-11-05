@@ -35,7 +35,7 @@ FIG_DIR = ROOT / "notebooks" / "figures"
 SEED = 42
 TEST_SIZE = 0.2
 CV_FOLDS = 5
-C_GRID = (0.1, 1.0, 10.0, 100.0)   # единственный подбираемый параметр
+C_GRID = (1e-6,)   # единственный подбираемый параметр
 
 TFIDF_PARAMS = {
     "lowercase": True,
@@ -44,8 +44,8 @@ TFIDF_PARAMS = {
     "sublinear_tf": True,
 }
 LOGREG_PARAMS = {
-    "class_weight": "balanced",
-    "solver": "liblinear",
+    "class_weight": None,
+    "solver": "lbfgs",
     "max_iter": 1000,
     "random_state": SEED,
 }
