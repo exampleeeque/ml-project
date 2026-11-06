@@ -6,6 +6,15 @@
 !src/config.py
 !src/data.py
 !src/predict.py
+!src/api/__init__.py
+!src/api/app.py
+!src/api/inference.py
+!src/api/observability.py
+!src/api/security.py
+!src/api/settings.py
+!static/index.html
+!static/app.js
+!static/style.css
 !integrity/MODEL_SHA256SUMS
 !models/spam_tfidf_logreg.skops
 
@@ -15,6 +24,7 @@
 .venv/
 venv/
 __pycache__/
+**/__pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
@@ -23,11 +33,15 @@ notebooks/
 data/
 reports/
 metrics/
+logs/
 tests/
+scripts/
+.secrets/
 .env
 .env.*
 *.pem
 *.key
+*.header
 id_rsa*
 id_ed25519*
 *.kdbx

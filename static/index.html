@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Проверка SMS на спам</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <main class="card">
+    <h1>Проверка SMS на спам</h1>
+    <p class="hint">Модель TF-IDF + логистическая регрессия (ЛР2). Сообщение на английском языке, до 1000 символов.</p>
+
+    <form id="predict-form" novalidate>
+      <label for="token">API-токен</label>
+      <input id="token" type="password" autocomplete="off" spellcheck="false"
+             placeholder="Вставьте токен — он не сохраняется">
+
+      <label for="text">Текст сообщения</label>
+      <textarea id="text" rows="5" maxlength="1000" spellcheck="false"
+                placeholder="Congratulations! You have won a FREE prize..."></textarea>
+      <div class="counter"><span id="count">0</span> / 1000</div>
+
+      <button id="submit" type="submit">Проверить</button>
+    </form>
+
+    <section id="status" class="status" role="status" aria-live="polite" hidden></section>
+
+    <dl id="result" class="result" hidden>
+      <dt>Результат</dt><dd id="r-prediction"></dd>
+      <dt>Оценка модели (spam_score)</dt><dd id="r-score"></dd>
+      <dt>Доля известных модели слов</dt><dd id="r-coverage"></dd>
+      <dt>Версия модели</dt><dd id="r-version"></dd>
+      <dt>Идентификатор запроса</dt><dd id="r-request"></dd>
+    </dl>
+    <p class="note">spam_score — выход логистической регрессии, обученной с весами классов; это не откалиброванная
+      вероятность. Решение «спам» принимается при значении не ниже 0,5.</p>
+  </main>
+</body>
+</html>

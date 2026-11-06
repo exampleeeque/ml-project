@@ -1,8 +1,8 @@
-# Безопасный CI/CD для ML-проекта (ЛР3).
-# Порядок: код и проверенные данные -> зависимости -> Ruff и Bandit -> тесты ->
+# Безопасный CI/CD для ML-проекта (ЛР3) + сервис предсказаний (ЛР4).
+# Порядок: код и проверенные данные -> зависимости -> Ruff и Bandit -> тесты (включая API-тесты ЛР4) ->
 # аудит зависимостей -> data gate -> обучение и оценка кандидата -> model gate ->
 # (job image) проверка Dockerfile -> сборка образа -> Trivy и security gate ->
-# проверка UID и smoke-проверка -> отчёты.
+# проверка UID -> smoke-проверка API в контейнере (/health, /predict, /metrics, неверный хэш) -> отчёты.
 # Любой непройденный шаг останавливает job; job image запускается только после
 # успешного job quality. Отчёты сохраняются и при сбое, статус запуска остаётся failed.
 
@@ -30,7 +30,7 @@ env:
   TRIVY_VERSION: "0.76.1"
   # SHA-256 архива trivy_0.76.1_Linux-ARM64.tar.gz из официального файла checksums релиза
   TRIVY_SHA256: "e174dff2a6dba5e3ae41f8d0537a6324405bd08132497340304c6b20e0f16a1f"
-  IMAGE: "ml-project:lab3"
+  IMAGE: "ml-project:lab4"
 
 jobs:
   quality:
@@ -77,7 +77,7 @@ jobs:
       - name: Bandit
         run: python -m bandit -r src/ | tee reports/bandit.txt
 
-      - name: Тесты
+      - name: Тесты (включая API-тесты ЛР4)
         run: python -m pytest tests/ -q --junitxml=reports/pytest.xml | tee reports/pytest.txt
 
       - name: Аудит зависимостей (pip-audit, строгая политика)
@@ -137,7 +137,7 @@ jobs:
           if-no-files-found: warn
 
   image:
-    name: image (build, Trivy, smoke)
+    name: image (build, Trivy, API smoke)
     needs: quality
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 25
@@ -201,15 +201,8 @@ jobs:
           echo "UID в контейнере: $uid" | tee reports/container_uid.txt
           test "$uid" != "0"
 
-      - name: Smoke-проверка модели в контейнере
-        run: |
-          run() { docker run --rm --network none --read-only --cap-drop ALL \
-                    --security-opt no-new-privileges:true --tmpfs /tmp "$IMAGE" "$@"; }
-          spam=$(run "Congratulations! You have won a FREE prize. Call 09061701461 to claim")
-          ham=$(run)
-          printf 'spam-вход: %s\nham-вход (CMD по умолчанию): %s\n' "$spam" "$ham" | tee reports/smoke.txt
-          grep -q "'label': 'spam'" <<< "$spam"
-          grep -q "'label': 'ham'" <<< "$ham"
+      - name: Smoke-проверка API в контейнере (/health, /predict, /metrics, неверный хэш модели)
+        run: bash scripts/container_smoke.sh "$IMAGE" reports
 
       - name: Сохранение отчётов (в том числе при сбое)
         if: ${{ always() }}

@@ -43,3 +43,8 @@ metrics/robustness_details.csv
 # --- ЛР3: результаты запусков gates и сканеров ---
 reports/
 .ruff_cache/
+# --- ЛР4: секреты, логи, окружение CI, локальные отчёты ---
+.secrets/
+logs/
+.venv-ci/
+reports/
