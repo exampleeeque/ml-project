@@ -73,8 +73,8 @@ class Settings:
         return cls(
             model_path=path("MODEL_PATH", defaults.model_path),
             model_reference=path("MODEL_REFERENCE", defaults.model_reference),
-            api_token_file=path("API_TOKEN_FILE", None),
-            metrics_token_file=path("METRICS_TOKEN_FILE", None),
+            api_token_file=path("API_TOKEN_FILE", Path("/run/secrets/api_token")),
+            metrics_token_file=path("METRICS_TOKEN_FILE", Path("/run/secrets/metrics_token")),
             max_body_bytes=number("MAX_BODY_BYTES", defaults.max_body_bytes, int),
             max_batch=number("MAX_BATCH", defaults.max_batch, int),
             rate_limit_requests=number("RATE_LIMIT_REQUESTS", defaults.rate_limit_requests, int),
